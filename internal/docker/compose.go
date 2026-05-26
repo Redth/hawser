@@ -490,7 +490,13 @@ func (c *ComposeClient) Execute(ctx context.Context, op *ComposeOperation) (*Com
 }
 
 func (c *ComposeClient) commandEnv(extra []string) []string {
-	env := append(os.Environ(), DockerHostEnv(c.dockerEndpoint))
+	env := make([]string, 0, len(os.Environ())+1+len(extra))
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "DOCKER_HOST=") {
+			env = append(env, entry)
+		}
+	}
+	env = append(env, DockerHostEnv(c.dockerEndpoint))
 	return append(env, extra...)
 }
 

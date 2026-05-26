@@ -149,16 +149,20 @@ func (c *Config) validate() error {
 }
 
 func detectDockerSocket() string {
-	if runtime.GOOS == "windows" {
+	return detectDockerSocketForGOOS(runtime.GOOS, os.Getenv("HOME"))
+}
+
+func detectDockerSocketForGOOS(goos, home string) string {
+	if goos == "windows" {
 		return docker.DefaultNpipeSocket
 	}
 
 	// Check common socket paths
 	paths := []string{
-		docker.DefaultUnixSocket,                         // Standard Linux
-		os.Getenv("HOME") + "/.docker/run/docker.sock",   // Docker Desktop Mac
-		os.Getenv("HOME") + "/.orbstack/run/docker.sock", // OrbStack
-		"/run/docker.sock",                               // Alternative Linux
+		docker.DefaultUnixSocket,            // Standard Linux
+		home + "/.docker/run/docker.sock",   // Docker Desktop Mac
+		home + "/.orbstack/run/docker.sock", // OrbStack
+		"/run/docker.sock",                  // Alternative Linux
 	}
 
 	for _, path := range paths {
@@ -172,7 +176,11 @@ func detectDockerSocket() string {
 }
 
 func defaultStacksDir() string {
-	if runtime.GOOS == "windows" {
+	return defaultStacksDirForGOOS(runtime.GOOS)
+}
+
+func defaultStacksDirForGOOS(goos string) string {
+	if goos == "windows" {
 		return `C:\ProgramData\hawser\stacks`
 	}
 	return "/data/stacks"
