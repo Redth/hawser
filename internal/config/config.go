@@ -3,9 +3,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/Finsys/hawser/internal/docker"
 	"github.com/google/uuid"
 )
 
@@ -24,7 +26,7 @@ type Config struct {
 	TLSKey      string // Optional TLS key path
 
 	// Docker connection
-	DockerSocket string // Default: /var/run/docker.sock
+	DockerSocket string // Default: /var/run/docker.sock (Linux/macOS), \\.\pipe\docker_engine (Windows)
 	DockerHost   string // Alternative: tcp://localhost:2375
 
 	// Agent identification
@@ -42,7 +44,7 @@ type Config struct {
 	LogLevel string // debug, info, warn, error. Default: info
 
 	// Stack files directory
-	StacksDir string // Directory for stack files, default: /data/stacks
+	StacksDir string // Directory for stack files, default: /data/stacks (Linux/macOS), C:\ProgramData\hawser\stacks (Windows)
 
 	// Version info (set by main.go from ldflags)
 	Version string
@@ -83,7 +85,7 @@ func Load() (*Config, error) {
 		LogLevel: getEnvString("LOG_LEVEL", "info"),
 
 		// Stack files directory
-		StacksDir: getEnvString("STACKS_DIR", "/data/stacks"),
+		StacksDir: getEnvString("STACKS_DIR", defaultStacksDir()),
 	}
 
 	// Validate configuration
@@ -109,7 +111,7 @@ func (c *Config) GetDockerEndpoint() string {
 	if c.DockerHost != "" {
 		return c.DockerHost
 	}
-	return "unix://" + c.DockerSocket
+	return docker.ParseEndpoint(c.DockerSocket).Raw
 }
 
 func (c *Config) validate() error {
@@ -135,8 +137,11 @@ func (c *Config) validate() error {
 
 	// Validate docker socket exists (if using socket)
 	if c.DockerHost == "" {
-		if _, err := os.Stat(c.DockerSocket); os.IsNotExist(err) {
-			return fmt.Errorf("Docker socket not found at %s", c.DockerSocket)
+		endpoint := docker.ParseEndpoint(c.DockerSocket)
+		if endpoint.Scheme == "unix" {
+			if _, err := os.Stat(endpoint.Address); os.IsNotExist(err) {
+				return fmt.Errorf("Docker socket not found at %s", endpoint.Address)
+			}
 		}
 	}
 
@@ -144,12 +149,16 @@ func (c *Config) validate() error {
 }
 
 func detectDockerSocket() string {
+	if runtime.GOOS == "windows" {
+		return docker.DefaultNpipeSocket
+	}
+
 	// Check common socket paths
 	paths := []string{
-		"/var/run/docker.sock",           // Standard Linux
-		os.Getenv("HOME") + "/.docker/run/docker.sock", // Docker Desktop Mac
+		docker.DefaultUnixSocket,                         // Standard Linux
+		os.Getenv("HOME") + "/.docker/run/docker.sock",   // Docker Desktop Mac
 		os.Getenv("HOME") + "/.orbstack/run/docker.sock", // OrbStack
-		"/run/docker.sock",               // Alternative Linux
+		"/run/docker.sock",                               // Alternative Linux
 	}
 
 	for _, path := range paths {
@@ -159,7 +168,14 @@ func detectDockerSocket() string {
 	}
 
 	// Default to standard path even if not found (will fail validation)
-	return "/var/run/docker.sock"
+	return docker.DefaultUnixSocket
+}
+
+func defaultStacksDir() string {
+	if runtime.GOOS == "windows" {
+		return `C:\ProgramData\hawser\stacks`
+	}
+	return "/data/stacks"
 }
 
 func generateAgentID() string {

@@ -22,25 +22,25 @@ var validEnvKeyRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 // deniedEnvKeys are environment variable names that could be used for code execution
 // or to redirect Docker operations to an attacker-controlled endpoint.
 var deniedEnvKeys = map[string]bool{
-	"LD_PRELOAD":      true,
-	"LD_LIBRARY_PATH": true,
-	"PATH":            true,
-	"DOCKER_HOST":     true,
-	"DOCKER_CONFIG":   true,
-	"DOCKER_CERT_PATH": true,
+	"LD_PRELOAD":        true,
+	"LD_LIBRARY_PATH":   true,
+	"PATH":              true,
+	"DOCKER_HOST":       true,
+	"DOCKER_CONFIG":     true,
+	"DOCKER_CERT_PATH":  true,
 	"DOCKER_TLS_VERIFY": true,
-	"DOCKER_CONTEXT":  true,
-	"HOME":            true,
-	"SHELL":           true,
-	"BASH_ENV":        true,
-	"ENV":             true,
-	"CDPATH":          true,
-	"IFS":             true,
+	"DOCKER_CONTEXT":    true,
+	"HOME":              true,
+	"SHELL":             true,
+	"BASH_ENV":          true,
+	"ENV":               true,
+	"CDPATH":            true,
+	"IFS":               true,
 }
 
 // ComposeClient handles Docker Compose operations
 type ComposeClient struct {
-	dockerSocket   string
+	dockerEndpoint string
 	composeCmd     string   // "docker" for v2, "docker-compose" for v1
 	composeArgs    []string // ["compose"] for v2, [] for v1
 	composeChecked bool
@@ -49,10 +49,10 @@ type ComposeClient struct {
 }
 
 // NewComposeClient creates a new Compose client
-func NewComposeClient(dockerSocket, stacksDir string) *ComposeClient {
+func NewComposeClient(dockerEndpoint, stacksDir string) *ComposeClient {
 	return &ComposeClient{
-		dockerSocket: dockerSocket,
-		stacksDir:    stacksDir,
+		dockerEndpoint: dockerEndpoint,
+		stacksDir:      stacksDir,
 	}
 }
 
@@ -158,7 +158,7 @@ func (c *ComposeClient) loginToRegistries(ctx context.Context, registries []Regi
 		log.Debugf("Compose: Logging into registry %s", registryHost)
 
 		cmd := exec.CommandContext(ctx, "docker", "login", "-u", reg.Username, "--password-stdin", registryHost)
-		cmd.Env = append(os.Environ(), fmt.Sprintf("DOCKER_HOST=unix://%s", c.dockerSocket))
+		cmd.Env = c.commandEnv(nil)
 		cmd.Stdin = strings.NewReader(reg.Password)
 
 		var stderr bytes.Buffer
@@ -237,7 +237,7 @@ func (c *ComposeClient) Execute(ctx context.Context, op *ComposeOperation) (*Com
 					ExitCode: 1,
 				}, nil
 			}
-			if !strings.HasPrefix(absFilePath, stackDir+string(os.PathSeparator)) && absFilePath != stackDir {
+			if !isPathWithinBase(stackDir, absFilePath) {
 				return &ComposeResult{
 					Success:  false,
 					Error:    fmt.Sprintf("Path traversal rejected: %s escapes stack directory", relPath),
@@ -416,8 +416,8 @@ func (c *ComposeClient) Execute(ctx context.Context, op *ComposeOperation) (*Com
 		cmd.Dir = op.WorkDir
 	}
 
-	// Set Docker socket environment
-	cmd.Env = append(os.Environ(), fmt.Sprintf("DOCKER_HOST=unix://%s", c.dockerSocket))
+	// Set Docker endpoint environment
+	cmd.Env = c.commandEnv(nil)
 
 	// Set API version for compatibility with newer Docker daemons
 	// This allows older docker CLI to work with newer daemons
@@ -487,6 +487,19 @@ func (c *ComposeClient) Execute(ctx context.Context, op *ComposeOperation) (*Com
 	}
 
 	return result, nil
+}
+
+func (c *ComposeClient) commandEnv(extra []string) []string {
+	env := append(os.Environ(), DockerHostEnv(c.dockerEndpoint))
+	return append(env, extra...)
+}
+
+func isPathWithinBase(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel))
 }
 
 // ParseComposePS parses the JSON output of docker compose ps

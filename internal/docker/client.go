@@ -15,7 +15,7 @@ import (
 
 // Client wraps Docker API operations
 type Client struct {
-	socketPath   string
+	endpoint     Endpoint
 	httpClient   *http.Client
 	streamClient *http.Client // Separate client for streaming (no timeout)
 	apiVersion   string
@@ -31,33 +31,29 @@ func (c *Client) GetAPIVersion() string {
 
 // GetSocketPath returns the Docker socket path for raw connections
 func (c *Client) GetSocketPath() string {
-	return c.socketPath
+	return c.endpoint.Address
+}
+
+// GetEndpoint returns the normalized Docker endpoint.
+func (c *Client) GetEndpoint() Endpoint {
+	return c.endpoint
+}
+
+// Dial opens a raw connection to Docker.
+func (c *Client) Dial(ctx context.Context) (net.Conn, error) {
+	return c.endpoint.DialContext(ctx)
 }
 
 // NewClient creates a new Docker client
-func NewClient(socketPath string) (*Client, error) {
-	// Create HTTP transport for Unix socket
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return net.Dial("unix", socketPath)
-		},
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		IdleConnTimeout:     90 * time.Second,
-	}
+func NewClient(endpointValue string) (*Client, error) {
+	endpoint := ParseEndpoint(endpointValue)
 
-	// Create streaming transport (same settings, reused for all streaming requests)
-	streamTransport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return net.Dial("unix", socketPath)
-		},
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		IdleConnTimeout:     0, // No idle timeout for streaming connections
-	}
+	transport := endpoint.Transport()
+	transport.IdleConnTimeout = 90 * time.Second
+	streamTransport := endpoint.Transport()
 
 	client := &Client{
-		socketPath: socketPath,
+		endpoint: endpoint,
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   30 * time.Second,
@@ -132,10 +128,10 @@ func (c *Client) GetVersion(ctx context.Context) (*VersionInfo, error) {
 // Request makes an HTTP request to the Docker API
 func (c *Client) Request(ctx context.Context, method, path string, headers map[string]string, body io.Reader) (*http.Response, error) {
 	// Build URL - for Unix socket, host is ignored but required
-	url := fmt.Sprintf("http://localhost/%s%s", c.apiVersion, path)
+	url := fmt.Sprintf("%s/%s%s", c.endpoint.BaseURL, c.apiVersion, path)
 	if strings.HasPrefix(path, "/_ping") || strings.HasPrefix(path, "/version") {
 		// These endpoints don't use versioned path
-		url = fmt.Sprintf("http://localhost%s", path)
+		url = fmt.Sprintf("%s%s", c.endpoint.BaseURL, path)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
@@ -161,7 +157,7 @@ func (c *Client) Request(ctx context.Context, method, path string, headers map[s
 
 // RequestRaw makes a request without API versioning (for proxying)
 func (c *Client) RequestRaw(ctx context.Context, method, path string, headers map[string]string, body io.Reader) (*http.Response, error) {
-	url := fmt.Sprintf("http://localhost%s", path)
+	url := fmt.Sprintf("%s%s", c.endpoint.BaseURL, path)
 
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -184,7 +180,7 @@ func (c *Client) RequestRaw(ctx context.Context, method, path string, headers ma
 // StreamRequest makes a streaming request (for logs, exec, events)
 // Uses the pre-initialized streamClient which has no timeout and proper connection pooling
 func (c *Client) StreamRequest(ctx context.Context, method, path string, headers map[string]string, body io.Reader) (*http.Response, error) {
-	url := fmt.Sprintf("http://localhost%s", path)
+	url := fmt.Sprintf("%s%s", c.endpoint.BaseURL, path)
 
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -306,8 +302,8 @@ type HijackedConn struct {
 
 // StartExecAttach starts an exec instance and returns a hijacked connection
 func (c *Client) StartExecAttach(ctx context.Context, execID string) (*HijackedConn, error) {
-	// Connect directly to the Unix socket
-	conn, err := net.Dial("unix", c.socketPath)
+	// Connect directly to Docker
+	conn, err := c.Dial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Docker socket: %w", err)
 	}

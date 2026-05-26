@@ -2,13 +2,11 @@ package metrics
 
 import (
 	"bufio"
-	"context"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Finsys/hawser/internal/docker"
@@ -212,26 +210,6 @@ func (c *Collector) collectMemorySyscall() (total, used, free uint64, err error)
 	// The agent is primarily designed to run on Linux (in Docker)
 	// Return zeros - Dockhand will show "N/A" for these metrics
 	return 0, 0, 0, nil
-}
-
-// collectDisk reads disk usage for Docker data root
-func (c *Collector) collectDisk() (total, used, free uint64, err error) {
-	// Get Docker data root
-	dataRoot, err := c.dockerClient.GetDataRoot(context.Background())
-	if err != nil {
-		dataRoot = "/var/lib/docker"
-	}
-
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(dataRoot, &stat); err != nil {
-		return 0, 0, 0, err
-	}
-
-	total = stat.Blocks * uint64(stat.Bsize)
-	free = stat.Bavail * uint64(stat.Bsize)
-	used = total - free
-
-	return total, used, free, nil
 }
 
 // collectNetwork reads network interface statistics

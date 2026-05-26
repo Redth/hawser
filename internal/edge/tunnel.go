@@ -113,7 +113,7 @@ func (c *Client) createExec(ctx context.Context, req *ExecRequest) (string, erro
 // Start begins the exec session with hijacking
 func (t *ExecTunnel) Start(ctx context.Context, tty bool) error {
 	// Connect to Docker socket for hijacked connection
-	conn, err := net.Dial("unix", t.client.cfg.DockerSocket)
+	conn, err := t.client.dockerClient.Dial(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Docker socket: %w", err)
 	}
@@ -308,4 +308,3 @@ func (c *Client) HandleExecInput(requestID string, data []byte) error {
 
 	return nil
 }
-

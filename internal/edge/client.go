@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -76,7 +75,7 @@ type StreamContext struct {
 // Run starts the Edge mode client with auto-reconnect
 func Run(cfg *config.Config, stop <-chan os.Signal) error {
 	// Create Docker client
-	dockerClient, err := docker.NewClient(cfg.DockerSocket)
+	dockerClient, err := docker.NewClient(cfg.GetDockerEndpoint())
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
 	}
@@ -91,7 +90,7 @@ func Run(cfg *config.Config, stop <-chan os.Signal) error {
 	}
 
 	// Create compose client with API version negotiation
-	composeClient := docker.NewComposeClient(cfg.DockerSocket, cfg.StacksDir)
+	composeClient := docker.NewComposeClient(cfg.GetDockerEndpoint(), cfg.StacksDir)
 	if version != nil && version.APIVersion != "" {
 		composeClient.SetAPIVersion(version.APIVersion)
 		log.Debugf("Compose client using API version %s", version.APIVersion)
@@ -758,11 +757,10 @@ func (c *Client) eventsLoop(done <-chan struct{}) {
 // Uses raw socket instead of http.Client to avoid connection pooling issues
 // that cause immediate EOF on Docker 29+ (see Finsys/dockhand#126).
 func (c *Client) streamEvents(done <-chan struct{}) error {
-	socketPath := c.dockerClient.GetSocketPath()
 	apiVersion := c.dockerClient.GetAPIVersion()
 
-	// Open a dedicated Unix socket connection (not pooled)
-	conn, err := net.Dial("unix", socketPath)
+	// Open a dedicated Docker connection (not pooled)
+	conn, err := c.dockerClient.Dial(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to connect to Docker socket: %w", err)
 	}
