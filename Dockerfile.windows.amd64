@@ -1,0 +1,40 @@
+# escape=`
+# =============================================================================
+# Hawser Windows Docker Image - AMD64
+# =============================================================================
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+SHELL ["powershell", "-NoLogo", "-NoProfile", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+ARG DOCKER_CLI_VERSION=28.5.1
+ARG DOCKER_COMPOSE_VERSION=2.39.4
+
+WORKDIR C:\app
+
+RUN New-Item -ItemType Directory -Force C:\ProgramData\hawser\stacks, C:\ProgramData\docker-cli | Out-Null; `
+    Invoke-WebRequest -UseBasicParsing -Uri "https://download.docker.com/win/static/stable/x86_64/docker-$env:DOCKER_CLI_VERSION.zip" -OutFile C:\docker.zip; `
+    Expand-Archive C:\docker.zip -DestinationPath C:\docker; `
+    Copy-Item C:\docker\docker\docker.exe C:\Windows\System32\docker.exe; `
+    Remove-Item -Recurse -Force C:\docker, C:\docker.zip; `
+    New-Item -ItemType Directory -Force C:\ProgramData\Docker\cli-plugins | Out-Null; `
+    Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/docker/compose/releases/download/v$env:DOCKER_COMPOSE_VERSION/docker-compose-windows-x86_64.exe" -OutFile C:\ProgramData\Docker\cli-plugins\docker-compose.exe
+
+ENV PORT=2376 `
+    DOCKER_SOCKET=\\.\pipe\docker_engine `
+    STACKS_DIR=C:\ProgramData\hawser\stacks `
+    HEARTBEAT_INTERVAL=30 `
+    REQUEST_TIMEOUT=30 `
+    RECONNECT_DELAY=1 `
+    MAX_RECONNECT_DELAY=60
+
+VOLUME C:\ProgramData\hawser\stacks
+
+COPY hawser.exe C:\hawser\hawser.exe
+
+EXPOSE 2376
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 `
+    CMD powershell -NoLogo -NoProfile -Command "try { $scheme = if ($env:TLS_CERT) { 'https' } else { 'http' }; Invoke-WebRequest -UseBasicParsing -Uri \"$scheme://localhost:$env:PORT/_hawser/health\" | Out-Null; exit 0 } catch { exit 1 }"
+
+ENTRYPOINT ["C:\\hawser\\hawser.exe"]

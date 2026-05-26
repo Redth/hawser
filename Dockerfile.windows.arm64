@@ -1,0 +1,31 @@
+# escape=`
+# =============================================================================
+# Hawser Windows Docker Image - ARM64
+# =============================================================================
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+SHELL ["powershell", "-NoLogo", "-NoProfile", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+WORKDIR C:\app
+
+RUN New-Item -ItemType Directory -Force C:\ProgramData\hawser\stacks | Out-Null
+
+ENV PORT=2376 `
+    DOCKER_SOCKET=\\.\pipe\docker_engine `
+    STACKS_DIR=C:\ProgramData\hawser\stacks `
+    HEARTBEAT_INTERVAL=30 `
+    REQUEST_TIMEOUT=30 `
+    RECONNECT_DELAY=1 `
+    MAX_RECONNECT_DELAY=60
+
+VOLUME C:\ProgramData\hawser\stacks
+
+COPY hawser.exe C:\hawser\hawser.exe
+
+EXPOSE 2376
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 `
+    CMD powershell -NoLogo -NoProfile -Command "try { $scheme = if ($env:TLS_CERT) { 'https' } else { 'http' }; Invoke-WebRequest -UseBasicParsing -Uri \"$scheme://localhost:$env:PORT/_hawser/health\" | Out-Null; exit 0 } catch { exit 1 }"
+
+ENTRYPOINT ["C:\\hawser\\hawser.exe"]

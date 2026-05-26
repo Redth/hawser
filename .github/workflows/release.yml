@@ -61,3 +61,64 @@ jobs:
           name: release-artifacts
           path: dist/
           retention-days: 30
+
+  windows-containers:
+    runs-on: windows-2022
+    needs: release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\windows-amd64, dist\windows-arm64 | Out-Null
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ github.sha }}" -o dist\windows-amd64\hawser.exe ./cmd/hawser
+          $env:GOARCH = "arm64"
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ github.sha }}" -o dist\windows-arm64\hawser.exe ./cmd/hawser
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Windows AMD64 image
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          Copy-Item dist\windows-amd64\hawser.exe hawser.exe
+          docker build -f Dockerfile.windows.amd64 `
+            --label "org.opencontainers.image.title=hawser" `
+            --label "org.opencontainers.image.version=$version" `
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" `
+            --label "org.opencontainers.image.revision=${{ github.sha }}" `
+            -t "ghcr.io/finsys/hawser:${version}-windows-amd64" `
+            -t ghcr.io/finsys/hawser:latest-windows-amd64 .
+          docker push "ghcr.io/finsys/hawser:${version}-windows-amd64"
+          docker push ghcr.io/finsys/hawser:latest-windows-amd64
+
+      - name: Publish Windows ARM64 image if supported
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          Copy-Item dist\windows-arm64\hawser.exe hawser.exe
+          docker build -f Dockerfile.windows.arm64 `
+            --label "org.opencontainers.image.title=hawser" `
+            --label "org.opencontainers.image.version=$version" `
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" `
+            --label "org.opencontainers.image.revision=${{ github.sha }}" `
+            -t "ghcr.io/finsys/hawser:${version}-windows-arm64" `
+            -t ghcr.io/finsys/hawser:latest-windows-arm64 .
+          docker push "ghcr.io/finsys/hawser:${version}-windows-arm64"
+          docker push ghcr.io/finsys/hawser:latest-windows-arm64
+        continue-on-error: true

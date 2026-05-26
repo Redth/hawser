@@ -50,10 +50,59 @@ jobs:
           GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/hawser-linux-arm64 ./cmd/hawser
           GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/hawser-darwin-amd64 ./cmd/hawser
           GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/hawser-darwin-arm64 ./cmd/hawser
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/hawser-windows-amd64.exe ./cmd/hawser
+          GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o dist/hawser-windows-arm64.exe ./cmd/hawser
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries
+          path: dist/
+          retention-days: 7
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -v ./...
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -ldflags="-s -w" -o dist/hawser-windows-amd64.exe ./cmd/hawser
+          $env:GOARCH = "arm64"
+          go build -ldflags="-s -w" -o dist/hawser-windows-arm64.exe ./cmd/hawser
+
+      - name: Validate Windows container Dockerfile
+        shell: pwsh
+        run: |
+          Copy-Item dist/hawser-windows-amd64.exe hawser.exe
+          docker build -f Dockerfile.windows.amd64 -t hawser:windows-amd64 .
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
           path: dist/
           retention-days: 7

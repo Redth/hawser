@@ -26,6 +26,8 @@ Hawser is a lightweight Go agent that enables Dockhand to manage Docker hosts in
 
 Download the latest release from [GitHub Releases](https://github.com/Finsys/hawser/releases).
 
+Release binaries are available for Linux, macOS, and Windows on `amd64` and `arm64` (plus Linux ARMv7). Windows archives contain `hawser.exe`.
+
 **Standard Mode:**
 
 ```bash
@@ -240,6 +242,14 @@ sudo journalctl -u hawser -f
 
 ### Docker
 
+Linux images are published as multi-architecture images for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
+Windows container images are published as OS-specific tags:
+
+- `ghcr.io/finsys/hawser:<version>-windows-amd64`
+- `ghcr.io/finsys/hawser:<version>-windows-arm64`
+- `ghcr.io/finsys/hawser:latest-windows-amd64`
+- `ghcr.io/finsys/hawser:latest-windows-arm64`
+
 > **Important:** If your compose stacks use relative file bind mounts (e.g., `./config.conf:/app/config.conf`),
 > you **must** use a host path bind mount for `STACKS_DIR` — not a named volume. The path inside the container
 > must match the host path, because Docker daemon resolves bind mount sources on the host filesystem.
@@ -332,6 +342,35 @@ docker run -d \
   ghcr.io/finsys/hawser:latest
 ```
 
+#### Windows containers
+
+Windows containers use Docker Engine's named pipe by default (`\\.\pipe\docker_engine`) and store stacks in `C:\ProgramData\hawser\stacks`.
+
+**Standard Mode:**
+
+```powershell
+docker run -d `
+  --name hawser `
+  -v \\.\pipe\docker_engine:\\.\pipe\docker_engine `
+  -v C:\hawser-stacks:C:\ProgramData\hawser\stacks `
+  -p 2376:2376 `
+  ghcr.io/finsys/hawser:latest-windows-amd64
+```
+
+**Edge Mode:**
+
+```powershell
+docker run -d `
+  --name hawser `
+  -v \\.\pipe\docker_engine:\\.\pipe\docker_engine `
+  -v C:\hawser-stacks:C:\ProgramData\hawser\stacks `
+  -e DOCKHAND_SERVER_URL=wss://your-dockhand.example.com/api/hawser/connect `
+  -e TOKEN=your-agent-token `
+  ghcr.io/finsys/hawser:latest-windows-amd64
+```
+
+Use `latest-windows-arm64` on Windows ARM64 hosts when a compatible Windows base image is available. The Windows AMD64 image includes Docker CLI and Compose; Windows ARM64 Docker CLI/Compose availability depends on upstream Windows ARM64 Docker tooling.
+
 ### Building Docker image locally
 
 For local development or custom builds, use the multi-stage `Dockerfile.dev` which builds from source:
@@ -368,7 +407,7 @@ docker run -d \
 
 ### Multi-architecture builds
 
-The official images on `ghcr.io/finsys/hawser` are multi-arch (amd64 + arm64). For local multi-arch builds:
+The default official Linux image on `ghcr.io/finsys/hawser` is multi-arch (`linux/amd64`, `linux/arm64`, and `linux/arm/v7`). Windows container images use OS-specific tags. For local Linux multi-arch builds:
 
 ```bash
 # Create a builder (first time only)
@@ -446,8 +485,9 @@ Hawser is configured via environment variables:
 | `TLS_CERT` | Path to TLS certificate (Standard mode server cert) | - |
 | `TLS_KEY` | Path to TLS private key (Standard mode server key) | - |
 | `BIND_ADDRESS` | Address to bind to (use `127.0.0.1` to restrict to localhost) | `0.0.0.0` |
-| `DOCKER_SOCKET` | Docker socket path | `/var/run/docker.sock` |
-| `STACKS_DIR` | Directory for compose stack files (requires Dockhand 1.0.5+). Use a host path bind mount with matching paths if stacks use relative file bind mounts. | `/data/stacks` |
+| `DOCKER_SOCKET` | Docker socket path | `/var/run/docker.sock` (`\\.\pipe\docker_engine` on Windows) |
+| `DOCKER_HOST` | Docker endpoint override (`unix://`, `npipe://`, `tcp://`) | - |
+| `STACKS_DIR` | Directory for compose stack files (requires Dockhand 1.0.5+). Use a host path bind mount with matching paths if stacks use relative file bind mounts. | `/data/stacks` (`C:\ProgramData\hawser\stacks` on Windows) |
 | `AGENT_ID` | Unique agent identifier | Auto-generated UUID |
 | `AGENT_NAME` | Human-readable agent name | Hostname |
 | `HEARTBEAT_INTERVAL` | Heartbeat interval in seconds | `30` |

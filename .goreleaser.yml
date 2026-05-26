@@ -7,19 +7,37 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./cmd/hawser
+  - id: hawser_linux
+    main: ./cmd/hawser
     binary: hawser
     env:
       - CGO_ENABLED=0
     goos:
       - linux
-      - darwin
     goarch:
       - amd64
       - arm64
       - arm
     goarm:
       - "7"
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+    flags:
+      - -trimpath
+
+  - id: hawser_desktop
+    main: ./cmd/hawser
+    binary: hawser
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -43,6 +61,8 @@ dockers:
   - image_templates:
       - "ghcr.io/finsys/hawser:{{ .Version }}-amd64"
       - "ghcr.io/finsys/hawser:latest-amd64"
+    ids:
+      - hawser_linux
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -56,6 +76,8 @@ dockers:
   - image_templates:
       - "ghcr.io/finsys/hawser:{{ .Version }}-arm64"
       - "ghcr.io/finsys/hawser:latest-arm64"
+    ids:
+      - hawser_linux
     use: buildx
     build_flag_templates:
       - "--platform=linux/arm64"
@@ -69,6 +91,8 @@ dockers:
   - image_templates:
       - "ghcr.io/finsys/hawser:{{ .Version }}-armv7"
       - "ghcr.io/finsys/hawser:latest-armv7"
+    ids:
+      - hawser_linux
     use: buildx
     build_flag_templates:
       - "--platform=linux/arm/v7"
