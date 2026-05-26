@@ -505,7 +505,12 @@ func isPathWithinBase(base, target string) bool {
 	if err != nil {
 		return false
 	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel))
+	if rel == "." {
+		return true
+	}
+
+	isParentTraversal := rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+	return !isParentTraversal && !filepath.IsAbs(rel)
 }
 
 // ParseComposePS parses the JSON output of docker compose ps
