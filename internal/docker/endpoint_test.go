@@ -1,6 +1,13 @@
 package docker
 
-import "testing"
+import (
+	"context"
+	"net"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
@@ -84,5 +91,55 @@ func TestDockerHostEnv(t *testing.T) {
 		if got := DockerHostEnv(input); got != want {
 			t.Fatalf("DockerHostEnv(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestEndpointDialContextTCP(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	conn, err := ParseEndpoint("tcp://" + listener.Addr().String()).DialContext(ctx)
+	if err != nil {
+		t.Fatalf("DialContext tcp failed: %v", err)
+	}
+	conn.Close()
+
+	select {
+	case acceptedConn := <-accepted:
+		acceptedConn.Close()
+	case <-ctx.Done():
+		t.Fatal("listener did not accept tcp connection")
+	}
+}
+
+func TestEndpointDialContextErrorCases(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if _, err := ParseEndpoint("/tmp/hawser-missing.sock").DialContext(ctx); err == nil {
+		t.Fatal("expected missing unix socket dial to fail")
+	}
+
+	_, err := ParseEndpoint(`\\.\pipe\hawser-missing`).DialContext(ctx)
+	if runtime.GOOS == "windows" {
+		if err == nil {
+			t.Fatal("expected missing named pipe dial to fail")
+		}
+	} else if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("expected unsupported named pipe error, got %v", err)
 	}
 }

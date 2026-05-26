@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,29 @@ func TestComposeCommandEnvSetsDockerHost(t *testing.T) {
 	}
 	if env[len(env)-1] != "EXTRA=value" {
 		t.Fatalf("extra env was not appended, got final entry %q", env[len(env)-1])
+	}
+}
+
+func TestComposeExecuteRejectsPathTraversal(t *testing.T) {
+	client := NewComposeClient("unix:///tmp/docker.sock", t.TempDir())
+	client.composeChecked = true
+	client.composeCmd = "true"
+
+	result, err := client.Execute(context.Background(), &ComposeOperation{
+		Operation:   "ps",
+		ProjectName: "traversal-test",
+		Files: map[string]string{
+			filepath.Join("..", "evil.yml"): "services: {}",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected traversal attempt to fail")
+	}
+	if !strings.Contains(result.Error, "Path traversal rejected") {
+		t.Fatalf("unexpected error: %q", result.Error)
 	}
 }
 
